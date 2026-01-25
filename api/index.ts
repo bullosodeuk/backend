@@ -1,6 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
+import chatRoutes from './routes/chat';
 
 // Load environment variables
 dotenv.config();
@@ -43,6 +45,18 @@ app.get('/api', (req: Request, res: Response) => {
     },
   });
 });
+
+// Rate limiting for chat endpoints
+const chatLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // 50 requests per window
+  message: 'Too many chat requests, please try again later',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Mount chat routes
+app.use('/api/chat', chatLimiter, chatRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
