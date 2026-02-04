@@ -83,10 +83,6 @@ router.post('/message', async (req: Request, res: Response): Promise<void> => {
         console.log('Token chunk:', textPart);
         fullResponse += textPart;
         sendEvent(res, 'token', { content: textPart });
-        // Force flush
-        if (typeof res.flush === 'function') {
-          res.flush();
-        }
       }
     } catch (streamError) {
       console.error('Stream error:', streamError);
