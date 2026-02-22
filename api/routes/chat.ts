@@ -1,6 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { openai } from '@ai-sdk/openai';
 import { streamText } from 'ai';
+import {
+  createConversation,
+  getConversationsByUserId,
+  getConversationById,
+  updateConversationTimestamp,
+  updateConversationTitle,
+} from '../../lib/db/queries/conversations';
+import {
+  createMessage,
+  getMessagesByConversationId,
+  getConversationHistory,
+  getMessageCount,
+} from '../../lib/db/queries/messages';
 
 const router = Router();
 
@@ -13,13 +26,15 @@ const sendEvent = (res: Response, event: string, data: any) => {
 // POST /api/chat/message - Send message with streaming
 router.post('/message', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { conversationId, message, userId } = req.body;
+    // Extract userId from verified JWT token
+    const userId = req.user!.id;
+    const { conversationId, message } = req.body;
 
     // Validate required fields
-    if (!message || !userId) {
+    if (!message) {
       res.status(400).json({
         error: 'Missing required fields',
-        details: 'message and userId are required'
+        details: 'message is required'
       });
       return;
     }
@@ -29,16 +44,15 @@ router.post('/message', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // For now, create a mock conversation ID if not provided
-    // In production, this will create/get from database
-    const convId = conversationId || `conv_${Date.now()}`;
+    // Create conversation if not provided
+    let convId = conversationId;
+    if (!convId) {
+      const conversation = await createConversation(userId);
+      convId = conversation.id;
+    }
 
-    // TODO: Store user message in database
-    // await db.insert(messages).values({
-    //   conversation_id: convId,
-    //   content: message,
-    //   role: 'user',
-    // });
+    // Store user message in database
+    await createMessage(convId, 'user', message);
 
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
@@ -49,23 +63,16 @@ router.post('/message', async (req: Request, res: Response): Promise<void> => {
     // Send start event
     sendEvent(res, 'start', { conversationId: convId });
 
-    // TODO: Load conversation history from database
-    // const dbMessages = await db.select()
-    //   .from(messages)
-    //   .where(eq(messages.conversation_id, convId))
-    //   .orderBy(messages.timestamp)
-    //   .limit(20);
+    // Load conversation history from database
+    const history = await getConversationHistory(convId, 20);
 
-    // For now, use simple conversation history
+    // Add system message to beginning
     const conversationHistory = [
       {
         role: 'system' as const,
         content: 'You are a helpful travel planning assistant. Help users plan trips, suggest destinations, and organize itineraries.'
       },
-      {
-        role: 'user' as const,
-        content: message
-      }
+      ...history
     ];
 
     // Stream response from OpenAI
@@ -90,16 +97,23 @@ router.post('/message', async (req: Request, res: Response): Promise<void> => {
 
     console.log('Full response length:', fullResponse.length);
 
-    // TODO: Store assistant message in database
-    // const [assistantMsg] = await db.insert(messages).values({
-    //   conversation_id: convId,
-    //   content: fullResponse,
-    //   role: 'assistant',
-    // }).returning();
+    // Store assistant message in database
+    const assistantMsg = await createMessage(convId, 'assistant', fullResponse);
+
+    // Update conversation timestamp
+    await updateConversationTimestamp(convId);
+
+    // Generate title if this is the first message (2 messages total: 1 user + 1 assistant)
+    const messageCount = await getMessageCount(convId);
+    if (messageCount === 2) {
+      // Generate a simple title from the first user message (truncate if too long)
+      const title = message.length > 50 ? message.substring(0, 50) + '...' : message;
+      await updateConversationTitle(convId, title);
+    }
 
     // Send completion event
     sendEvent(res, 'done', {
-      messageId: `msg_${Date.now()}`, // Replace with actual DB ID
+      messageId: assistantMsg.id,
       conversationId: convId,
     });
 
@@ -124,32 +138,18 @@ router.post('/message', async (req: Request, res: Response): Promise<void> => {
 // GET /api/chat/conversations - List user conversations
 router.get('/conversations', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId } = req.query;
-    // const limit = parseInt(req.query.limit as string) || 20;
-    // const offset = parseInt(req.query.offset as string) || 0;
+    // Extract userId from verified JWT token
+    const userId = req.user!.id;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = parseInt(req.query.offset as string) || 0;
 
-    if (!userId) {
-      res.status(400).json({ error: 'userId required' });
-      return;
-    }
+    // Query database for conversations
+    const result = await getConversationsByUserId(userId, limit, offset);
 
-    // TODO: Query database for conversations
-    // const convs = await db
-    //   .select()
-    //   .from(conversations)
-    //   .where(eq(conversations.user_id, userId as string))
-    //   .orderBy(desc(conversations.updated_at))
-    //   .limit(limit + 1)
-    //   .offset(offset);
-
-    // const hasMore = convs.length > limit;
-    // const results = hasMore ? convs.slice(0, -1) : convs;
-
-    // Mock response for now
     res.json({
-      conversations: [],
-      hasMore: false,
-      total: 0,
+      conversations: result.conversations,
+      hasMore: result.hasMore,
+      total: result.conversations.length,
     });
 
   } catch (error: any) {
@@ -161,29 +161,12 @@ router.get('/conversations', async (req: Request, res: Response): Promise<void> 
 // POST /api/chat/conversations - Create new conversation
 router.post('/conversations', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId, tripId } = req.body;
+    // Extract userId from verified JWT token
+    const userId = req.user!.id;
+    const { tripId } = req.body;
 
-    if (!userId) {
-      res.status(400).json({ error: 'userId required' });
-      return;
-    }
-
-    // TODO: Create conversation in database
-    // const [conversation] = await db.insert(conversations)
-    //   .values({
-    //     user_id: userId,
-    //     trip_id: tripId || null,
-    //   })
-    //   .returning();
-
-    // Mock response for now
-    const conversation = {
-      id: `conv_${Date.now()}`,
-      user_id: userId,
-      trip_id: tripId || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    // Create conversation in database
+    const conversation = await createConversation(userId, tripId);
 
     res.status(201).json({ conversation });
 
@@ -197,49 +180,34 @@ router.post('/conversations', async (req: Request, res: Response): Promise<void>
 router.get('/conversations/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
+    // Extract userId from verified JWT token
+    const userId = req.user!.id;
 
-    if (!userId) {
-      res.status(400).json({ error: 'userId required' });
+    // Get conversation from database with ownership check
+    const conversation = await getConversationById(id, userId);
+
+    if (!conversation) {
+      res.status(404).json({ error: 'Conversation not found' });
       return;
     }
 
-    // TODO: Get conversation from database
-    // const [conversation] = await db
-    //   .select()
-    //   .from(conversations)
-    //   .where(eq(conversations.id, id));
+    // Get messages
+    const msgs = await getMessagesByConversationId(id);
 
-    // if (!conversation) {
-    //   return res.status(404).json({ error: 'Conversation not found' });
-    // }
-
-    // // Verify ownership
-    // if (conversation.user_id !== userId) {
-    //   return res.status(403).json({ error: 'Access denied' });
-    // }
-
-    // // Get messages
-    // const msgs = await db
-    //   .select()
-    //   .from(messages)
-    //   .where(eq(messages.conversation_id, id))
-    //   .orderBy(messages.timestamp);
-
-    // Mock response for now
     res.json({
-      conversation: {
-        id,
-        user_id: userId,
-        trip_id: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      messages: [],
+      conversation,
+      messages: msgs,
     });
 
   } catch (error: any) {
     console.error('Get conversation error:', error);
+
+    // Handle access denied error
+    if (error.message === 'Access denied') {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+
     res.status(500).json({ error: 'Failed to fetch conversation' });
   }
 });

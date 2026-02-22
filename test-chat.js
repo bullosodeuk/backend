@@ -1,7 +1,12 @@
 const http = require('http');
+const crypto = require('crypto');
+
+// Generate a test UUID for userId (or use a fixed one)
+const testUserId = '123e4567-e89b-12d3-a456-426614174000'; // Fixed UUID for testing
+// Or generate a random one: crypto.randomUUID()
 
 const data = JSON.stringify({
-  userId: 'test-user-123',
+  userId: testUserId,
   message: 'Say "Hello World"'
 });
 

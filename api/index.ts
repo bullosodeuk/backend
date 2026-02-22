@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import chatRoutes from './routes/chat';
+import { authMiddleware } from './middleware/auth';
 
 // Load environment variables
 dotenv.config();
@@ -19,13 +20,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Request logging middleware
-app.use((req: Request, res: Response, next: NextFunction) => {
+app.use((req: Request, _res: Response, next: NextFunction) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
 // Health check endpoint
-app.get('/health', (req: Request, res: Response) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -34,7 +35,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // API routes (to be added)
-app.get('/api', (req: Request, res: Response) => {
+app.get('/api', (_req: Request, res: Response) => {
   res.status(200).json({
     message: 'Travlr API v1.0',
     endpoints: {
@@ -55,8 +56,8 @@ const chatLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Mount chat routes
-app.use('/api/chat', chatLimiter, chatRoutes);
+// Mount chat routes (protected with authentication)
+app.use('/api/chat', authMiddleware, chatLimiter, chatRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
@@ -67,7 +68,7 @@ app.use((req: Request, res: Response) => {
 });
 
 // Error handling middleware
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('Error:', err);
 
   res.status(500).json({

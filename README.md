@@ -108,8 +108,8 @@ The server will start on `http://localhost:8080` (or the port specified in `.env
 - [x] Project structure created
 - [x] Basic server with CORS and error handling
 - [x] Vercel deployment configuration
-- [ ] Supabase configuration
-- [ ] Drizzle ORM setup and schema
+- [x] Supabase configuration
+- [x] Drizzle ORM setup and schema
 - [ ] Authentication middleware
 - [ ] CRUD endpoints (trips, itinerary)
 
