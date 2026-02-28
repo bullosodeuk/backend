@@ -7,6 +7,7 @@ declare global {
     interface Request {
       user?: {
         id: string;
+        role?: string;
       };
     }
   }
@@ -54,11 +55,27 @@ export async function authMiddleware(
       return;
     }
 
-    // Attach verified user ID to request
-    req.user = { id: user.id };
+    // Attach verified user to request
+    req.user = {
+      id: user.id,
+      role: user.user_metadata?.role,
+    };
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+export function requireRole(...roles: string[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const role = req.user?.role;
+
+    if (!role || !roles.includes(role)) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+
+    next();
+  };
 }

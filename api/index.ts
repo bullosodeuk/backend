@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import chatRoutes from './routes/chat';
-import { authMiddleware } from './middleware/auth';
+import { authMiddleware, requireRole } from './middleware/auth';
 
 // Load environment variables
 dotenv.config();
@@ -70,7 +70,7 @@ const chatLimiter = rateLimit({
 });
 
 // Mount chat routes (protected with authentication)
-app.use('/api/chat', authMiddleware, chatLimiter, chatRoutes);
+app.use('/api/chat', authMiddleware, requireRole('member', 'guide', 'admin'), chatLimiter, chatRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
