@@ -16,7 +16,7 @@ declare global {
 // Lazy initialization of Supabase client
 let supabaseClient: SupabaseClient | null = null;
 
-function getSupabaseClient() {
+export function getSupabaseClient() {
   if (!supabaseClient) {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
